@@ -1,0 +1,155 @@
+@startuml RACEDATA_ER図
+' hide the spot
+hide circle
+' avoid problems with angled crows feet
+skinparam linetype ortho
+
+entity "競走馬" as horses {
+    + 競走馬ID
+    ==
+    * 名前
+    * 性別(牡/牝/セン)
+    * 出生年
+    * 毛色 (区分)
+    * 生産牧場ID (FK)
+    馬主ID (FK)
+    調教師ID (FK)
+    * 父ID (FK)
+    * 母ID (FK)
+    * 現役フラグ
+}
+
+' ビューとして用意
+' 収得賞金 対象馬のレース結果テーブルの賞金の合算
+' SELECT SUM (r.prise) as total_prise FROM result as r LEFT JOIN horse as h on r.horse_id = h.id;
+' クラス 対象馬が順位=1であるレース結果レコードの参照先のレースレコードのクラスの降順表示の1行目
+' SELECT race.class FROM race LEFT JOIN result on result.race_id = race.id LEFT JOIN horse on result.horse_id = horse.id WHERE result.rank = 1 ORDER BY race.rank DESC LIMIT 1;
+' 主な勝ち鞍 同上
+' SELECT race.name, race.class FROM race LEFT JOIN result on result.race_id = race.id LEFT JOIN horse on result.horse_id = horse.id WHERE result.rank = 1 ORDER BY race.rank DESC LIMIT 1;
+
+entity "生産牧場" as farms {
+    + 牧場ID
+    ==
+    * 名称
+}
+
+entity "馬主" as owner {
+    + 馬主ID
+    ==
+    * 名前
+    * 勝負服
+}
+
+entity "調教師" as trainer {
+    + 調教師ID
+    ==
+    * 名前
+    * 所属 (区分)
+    * 現役フラグ
+    騎手成績 (FK)
+    ' 元騎手の場合は騎手レコードへ紐付け・そうでない場合はnull
+}
+
+' 調教師・騎手には中央/地方の区分があるがどう表現するか
+entity "騎手" as jockey {
+    + 騎手ID
+    ==
+    * 所属 (区分)
+    * デビュー年
+    * 現役フラグ
+}
+
+' 施行条件や名称、グレードなどが変わることを考慮すると
+' 種別ではなく純粋に1つのレースを1レコードとするべき
+
+entity "レース" as race {
+    + レースID
+    ==
+    * 名称
+    * 競争種別 (区分)
+    * 開催年月日
+    * 開催場ID (FK)
+    * 馬場状態 (区分)
+    * クラス (区分)
+    * 距離
+}
+
+entity "施行条件" as terms {
+    + 施行条件ID
+    ==
+    * 名称
+    ' 馬場(芝/ダート), 性別(混合/牝限), 馬齢(2歳/3歳/4歳以上)etc
+    ' 項目別にカラムにするのではなく、あくまで諸条件をこのテーブルにまとめてしまって
+    ' 検索時にこの施行条件IDで逆引きする形式
+}
+
+entity "競馬場" as course {
+    + 競馬場ID
+    ==
+    * 名称
+}
+
+' 取消/除外/中止/降着/失格 の処理を考える必要あり
+' 降着 -> 順位カラムに降着後順位を格納し 着差に99(降着)を格納
+' それ以外 -> 順位カラムに取消/除外/中止/失格を格納し 着差はnull
+entity "レース結果" as raceResult {
+    + レース結果ID
+    ==
+    * レースID (FK)
+    * 競走馬ID (FK)
+    * 騎手ID (FK)
+    * 順位
+    * 馬番
+    * 枠番
+    * 斤量
+    * タイム
+    着差 (区分)
+    ' 同着, ハナ, アタマ, クビ, 1/2, 3/4, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4~10, 大差
+    通過順位
+    単勝倍率
+    人気
+    馬体重
+    収得賞金
+}
+
+' 馬券関連
+' レース+馬券+対象馬の3つを複合キーとするテーブル
+entity "払い戻しテーブル" as refunds {
+    + 払い戻しID
+    ==
+    * レースID (FK)
+    * 馬券種別 (FK)
+    * 競走馬ID (FK)
+    * 金額
+}
+
+' 父・母は必ず存在する(自己参照・依存)
+' ※始祖レコードのみ例外。要設計検討。
+' 子供がいない馬も存在する(0以上)
+' 生まれた馬の生産牧場は必ず存在する(依存)
+' セリまでは馬主不在の期間有(非依存)
+' 入厩までは調教師不在の期間有(非依存)
+' 新しい牧場, 馬主, 調教師は管理馬0頭のケース有(0以上)
+horses }o--|| horses
+horses }o--|| farms
+horses }o..o| owner
+horses }o..o| trainer
+
+' レースには開催場が必ず存在する(依存)
+' 新競馬場は開催レース0のケース有(0以上)
+race }o--|| course
+race }o..o{ terms
+
+' レース結果にはレース, 出走馬, 騎手が必ず存在する(依存)
+' 新設レースはまだ開催されていない期間がある(0以上)
+' どのレースにも出走していない馬が存在する(0以上)
+' どのレースにも出走していない騎手が存在する(0以上)
+raceResult }o--|| race
+raceResult }o--|| horses
+raceResult }o--|| jockey
+
+' 払い戻しには対象レース, 対象馬が必ず存在する(依存)
+' レースには必ず払い戻しが存在する(1以上)
+' 1度も払い戻し対象になっていない馬が存在する(0以上)
+refunds }|--|| race
+refunds }o--|| horses
